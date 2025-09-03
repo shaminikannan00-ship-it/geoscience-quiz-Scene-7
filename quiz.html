@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scene 7 – Adaptive Geoscience Quiz</title>
+  <style>
+    :root {
+      --fg: #111827; /* slate-900 */
+      --muted: #6b7280; /* gray-500 */
+      --accent: #2563eb; /* blue-600 */
+      --ok: #15803d; /* green-700 */
+      --bad: #b91c1c; /* red-700 */
+      --bg: #f9fafb; /* gray-50 */
+      --card: #ffffff;
+    }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--fg); margin: 0; }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 24px; }
+    header { margin-bottom: 16px; }
+    h1 { font-size: 1.6rem; margin: 0 0 6px; }
+    .sub { color: var(--muted); font-size: .95rem; }
+    .card { background: var(--card); border: 1px solid #e5e7eb; border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+    .meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: .9rem; color: var(--muted); margin-bottom: 10px; }
+    .badge { background: #eef2ff; color: #4338ca; border-radius: 999px; padding: 4px 10px; font-weight: 600; }
+    .qtext { font-size: 1.15rem; margin: 8px 0 14px; }
+    .options { display: grid; gap: 8px; }
+    .opt { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; cursor: pointer; background: #fff; }
+    .opt input { margin-right: 8px; }
+    .opt.correct { border-color: #86efac; background: #f0fdf4; }
+    .opt.incorrect { border-color: #fecaca; background: #fef2f2; }
+    .feedback { margin-top: 12px; font-weight: 600; }
+    .feedback.ok { color: var(--ok); }
+    .feedback.bad { color: var(--bad); }
+    .controls { margin-top: 16px; display: flex; gap: 10px; }
+    button { border: none; border-radius: 10px; padding: 10px 16px; font-weight: 700; cursor: pointer; }
+    #nextBtn { background: var(--accent); color: white; display: none; }
+    #restartBtn { background: #111827; color: white; display: none; }
+    .progress { margin-top: 10px; font-size: .9rem; color: var(--muted); }
+    .result h2 { margin: 0 0 8px; }
+    .result p { margin: 6px 0; }
+    .small { font-size: .9rem; color: var(--muted); }
+    .sr { position: absolute; left: -9999px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Scene 7 – Adaptive Geoscience Quiz</h1>
+      <div class="sub">Max 8 questions per attempt. Adaptive progression: Beginner → Intermediate → Advanced.</div>
+    </header>
+
+    <div id="quiz" class="card">
+      <div class="meta">
+        <span id="levelBadge" class="badge">Beginner</span>
+        <span id="counter">Question 1 of 8</span>
+      </div>
+      <div id="qText" class="qtext"></div>
+      <div id="options" class="options"></div>
+      <div id="feedback" class="feedback" aria-live="polite"></div>
+      <div class="controls">
+        <button id="nextBtn">Next</button>
+        <button id="restartBtn">Restart</button>
+      </div>
+      <div class="progress" id="progressInfo"></div>
+    </div>
+
+    <div id="final" class="card result" style="display:none"></div>
+  </div>
+
+<script>
+/**
+ * DATA MODEL
+ * Each question: { q, options[4], answer (0..3), feedbackCorrect, feedbackIncorrect }
+ */
+
+const beginnerQuestions = [
+  // 1
+  { q: "Which stress pulls rock layers apart?",
+    options: ["Shear","Normal","Tensile","Compressional"],
+    answer: 2,
+    feedbackCorrect: "✅ Yes, tensile stress pulls rocks apart and promotes opening of cracks and joints. This extensional regime increases fracture apertures and can enhance permeability in brittle rocks.",
+    feedbackIncorrect: "❌ Not quite—tensile stress is the one that separates layers rather than squeezing or sliding them. Review how extension differs from compression and shear in Scene 4 (Rock Stress Types)." },
+  // 2
+  { q: "Which stress squeezes rocks inward?",
+    options: ["Tensile","Compressional","Shear","Normal"],
+    answer: 1,
+    feedbackCorrect: "✅ Correct—compressional stress shortens and thickens rock bodies, driving folding and reverse faulting when strain localizes.",
+    feedbackIncorrect: "❌ Look again—compressional stress reduces volume along the shortening direction; it is the opposite of tensile extension and distinct from sideways shear." },
+  // 3
+  { q: "Which stress causes sliding of rock layers past each other?",
+    options: ["Shear","Compressional","Tensile","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Right—shear stress promotes lateral displacement along planes, producing strike-slip motion and shear fabrics.",
+    feedbackIncorrect: "❌ This one causes sideways movement, not opening (tension) or shortening (compression). Think of transform boundaries where plates slide past each other." },
+  // 4
+  { q: "Which modulus resists stretching under tension?",
+    options: ["Young’s","Bulk","Shear","Biot’s"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—Young’s modulus quantifies stiffness in axial tension or compression, relating stress to strain along a direction.",
+    feedbackIncorrect: "❌ Young’s modulus defines resistance to linear strain; bulk modulus governs volumetric compression and shear modulus governs shape change at constant volume." },
+  // 5
+  { q: "Which modulus resists shape distortion?",
+    options: ["Bulk","Shear","Young’s","Porosity"],
+    answer: 1,
+    feedbackCorrect: "✅ Yes—shear (rigidity) modulus controls resistance to changes in shape at nearly constant volume, central to shear-wave behavior.",
+    feedbackIncorrect: "❌ Remember: bulk modulus is about volume change under pressure, whereas shear modulus is about resisting distortion (shearing)." },
+  // 6
+  { q: "Which modulus measures resistance to compression in all directions?",
+    options: ["Bulk","Shear","Young’s","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—bulk modulus captures how incompressible a material is under hydrostatic pressure and strongly influences P-wave velocity.",
+    feedbackIncorrect: "❌ Bulk modulus is the property for uniform volumetric compression; shear and Young’s relate to distortional or directional stiffness." },
+  // 7
+  { q: "Which pore type allows continuous fluid flow?",
+    options: ["Isolated","Connected","Interconnected","Cemented"],
+    answer: 1,
+    feedbackCorrect: "✅ Right—connected pores link up to form pathways that sustain fluid movement through the rock matrix.",
+    feedbackIncorrect: "❌ Try again—isolated pores do not contribute to flow because they lack connections to neighboring voids." },
+  // 8
+  { q: "Which pore type traps fluids permanently?",
+    options: ["Connected","Isolated","Interconnected","Matrix"],
+    answer: 1,
+    feedbackCorrect: "✅ Exactly—isolated pores are closed off from the network and can hold fluids without contributing to permeability.",
+    feedbackIncorrect: "❌ Connected or interconnected pore systems facilitate flow; isolation inhibits drainage and transmissivity." },
+  // 9
+  { q: "Which pore type is linked by narrow channels?",
+    options: ["Connected","Isolated","Interconnected","Cemented"],
+    answer: 2,
+    feedbackCorrect: "✅ Yes—interconnected pores are joined by throats or micro-channels, enabling flow though sometimes with high tortuosity.",
+    feedbackIncorrect: "❌ They’re not wide open tunnels—think fine, linked pathways that still allow movement across the network." },
+  // 10
+  { q: "Under tensile stress, rocks are most likely to:",
+    options: ["Compact","Crack and extend","Shear slip","Resist deformation"],
+    answer: 1,
+    feedbackCorrect: "✅ Right—extension promotes fracturing and dilation, often producing mode-I (opening) fractures and joints.",
+    feedbackIncorrect: "❌ Tension does not compact rock—it opens fractures and can increase apparent porosity locally." },
+  // 11
+  { q: "Compressional stress usually leads to:",
+    options: ["Folding","Cracking","Slip","Cementation"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—sustained compression commonly produces folding, and where strain localizes it can generate reverse or thrust faults.",
+    feedbackIncorrect: "❌ Compression tends to bend and shorten layers rather than open tensile fractures." },
+  // 12
+  { q: "Which pore type is most common in shallow layers?",
+    options: ["Connected, Interconnected, Isolated","Isolated only","Connected only","None"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—near surface you can encounter a mix of connected, interconnected, and isolated pores due to variable deposition and early diagenesis.",
+    feedbackIncorrect: "❌ At shallow depth porosity types are diverse; it’s rarely limited to a single category only." },
+  // 13
+  { q: "What happens to porosity as depth increases?",
+    options: ["Increases","Decreases","Stays constant","Cycles"],
+    answer: 1,
+    feedbackCorrect: "✅ Right—porosity generally decreases with burial due to compaction and cementation reducing pore volume.",
+    feedbackIncorrect: "❌ With increasing overburden, pores tend to close; only special processes (e.g., overpressure, dissolution) counteract this trend." },
+  // 14
+  { q: "What does Young’s modulus measure?",
+    options: ["Resistance to compressive/tensile strain","Resistance to fluid flow","Resistance to hydrostatic stress","Resistance to sliding"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—Young’s modulus links axial stress and strain, describing tensile/compactive stiffness.",
+    feedbackIncorrect: "❌ It doesn’t quantify permeability or hydrostatic pressure response; that’s governed by other properties like bulk modulus." },
+  // 15
+  { q: "Which stress is most likely to form strike-slip faults?",
+    options: ["Shear","Compressional","Tensile","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—strike-slip systems arise from dominant horizontal shear producing lateral displacement.",
+    feedbackIncorrect: "❌ Strike-slip is driven by sideways shear, not by shortening (compression) or extension (tension)." },
+  // 16
+  { q: "Which pore structure prevents any flow?",
+    options: ["Isolated","Connected","Interconnected","Cemented"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—isolated pores lack connectivity and therefore do not contribute to transmissivity.",
+    feedbackIncorrect: "❌ Connected pore networks act as pathways; isolation is what traps and blocks movement." },
+  // 17
+  { q: "Which modulus controls lateral deformation?",
+    options: ["Shear","Bulk","Young’s","Biot’s"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—shear modulus governs resistance to distortional (lateral) strain and controls S-wave velocity with density.",
+    feedbackIncorrect: "❌ Bulk modulus applies to volumetric compression rather than sideways shape change." },
+  // 18
+  { q: "Which stress type dominates at convergent plate boundaries?",
+    options: ["Tensile","Compressional","Shear","Hydrostatic"],
+    answer: 1,
+    feedbackCorrect: "✅ Right—convergent margins experience strong compression, producing folding, crustal thickening, and reverse faulting.",
+    feedbackIncorrect: "❌ Convergent settings squeeze together rather than pull apart or primarily slide past." },
+  // 19
+  { q: "Which stress type dominates at divergent plate boundaries?",
+    options: ["Tensile","Compressional","Shear","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—divergence pulls plates apart, fostering normal faulting and crustal thinning.",
+    feedbackIncorrect: "❌ Divergent margins are characterized by extension, not compression or pure lateral shear." },
+  // 20
+  { q: "Which stress type dominates at transform boundaries?",
+    options: ["Shear","Tensile","Compressional","Bulk"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—transform boundaries are governed by horizontal shear along near-vertical faults.",
+    feedbackIncorrect: "❌ Transform systems slide past rather than opening (tensile) or shortening (compressional)." },
+];
+
+const intermediateQuestions = [
+  // 21
+  { q: "Why does porosity decrease with depth?",
+    options: ["Cementation stops","Compaction reduces pore space","Mineral dissolution increases","Temperature increases"],
+    answer: 1,
+    feedbackCorrect: "✅ Right—overburden stress compacts grains and expels fluids, progressively reducing void space with burial.",
+    feedbackIncorrect: "❌ Cementation may also reduce porosity, but the primary driver is mechanical compaction that tightens grain packing." },
+  // 22
+  { q: "Why does compressional stress reduce porosity?",
+    options: ["It dissolves grains","It squeezes grains closer","It increases pore pressure","It increases cementation"],
+    answer: 1,
+    feedbackCorrect: "✅ Exactly—compression shortens frameworks, bringing grains into tighter contact and closing pores and throats.",
+    feedbackIncorrect: "❌ Compression mainly shortens and packs grains; dissolution or cementation are separate diagenetic processes." },
+  // 23
+  { q: "Why does shear stress create slip surfaces?",
+    options: ["Layers slide in opposite directions","It pulls grains apart","It dissolves cement","It increases porosity"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—shear induces differential lateral motion along planes, generating slip surfaces and shear fabrics.",
+    feedbackIncorrect: "❌ Shear is not extensional opening or chemical alteration; it’s sideways displacement along planes." },
+  // 24
+  { q: "Why does tensile stress often cause fractures?",
+    options: ["It pulls grains apart","It reduces pore pressure","It increases bulk density","It compacts grains"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—tension creates mode-I cracks when tensile strength is exceeded, separating grains and opening voids.",
+    feedbackIncorrect: "❌ Tensile stress does not compact; it promotes crack initiation and propagation due to opening forces." },
+  // 25
+  { q: "Why are interconnected pores important for flow?",
+    options: ["They form partial channels","They trap fluids","They reduce porosity","They increase cementation"],
+    answer: 0,
+    feedbackCorrect: "✅ Right—interconnected pores are linked by throats that create continuous (though sometimes narrow) pathways for Darcy flow.",
+    feedbackIncorrect: "❌ Their role is to enable connectivity; trapping occurs when pores are isolated or throats are blocked." },
+  // 26
+  { q: "Which modulus is most relevant for seismic wave velocity?",
+    options: ["Young’s","Bulk","Shear","Porosity"],
+    answer: 1,
+    feedbackCorrect: "✅ Yes—bulk modulus strongly influences P-wave velocity because it governs resistance to volumetric compression.",
+    feedbackIncorrect: "❌ Shear modulus affects S-wave speed, but for P-waves the bulk response dominates in combination with density." },
+  // 27
+  { q: "Why do stiff rocks have higher Young’s modulus?",
+    options: ["They resist strain","They dissolve easily","They contain more pores","They trap fluids"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—stiffer materials deform less for a given stress, reflecting a higher Young’s modulus and stronger framework.",
+    feedbackIncorrect: "❌ Increased porosity typically lowers stiffness; dissolution or fluid trapping are not direct causes of high E." },
+  // 28
+  { q: "Why are fractures important in tight reservoirs?",
+    options: ["They provide flow pathways","They increase cementation","They reduce compaction","They trap fluids"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—when matrix permeability is low, fractures supply the dominant conduits for hydrocarbon movement and production.",
+    feedbackIncorrect: "❌ Fractures open flow paths; cementation tends to block them and does not create new transmissive networks." },
+  // 29
+  { q: "Why does bulk density increase with depth?",
+    options: ["Cement dissolves","Compaction closes pores","Grain density decreases","Porosity increases"],
+    answer: 1,
+    feedbackCorrect: "✅ Right—progressive compaction reduces pore volume so the rock contains more solid per unit volume, increasing bulk density.",
+    feedbackIncorrect: "❌ Density rises primarily because porosity falls; grain density usually remains similar with depth." },
+  // 30
+  { q: "Which stress is mainly responsible for folding mountain belts?",
+    options: ["Compressional","Tensile","Shear","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—regional compression buckles and shortens strata, building large-scale fold-and-thrust belts.",
+    feedbackIncorrect: "❌ Folding is driven by shortening; extension or pure shear alone does not produce the same structures." },
+  // 31
+  { q: "Why does grain sorting affect porosity?",
+    options: ["Poor sorting reduces pore space","Good sorting reduces porosity","Sorting has no effect","Sorting only changes permeability"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—poorly sorted sediments let small grains fill the gaps between larger ones, diminishing pore volume and throat size.",
+    feedbackIncorrect: "❌ Sorting matters: better sorting typically preserves larger, more uniform pore spaces that enhance porosity and permeability." },
+  // 32
+  { q: "Why does pore pressure reduce effective stress?",
+    options: ["It reduces grain contacts","It dissolves minerals","It increases cementation","It increases grain stiffness"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—higher fluid pressure counteracts external stress at grain contacts, lowering effective stress and weakening the rock framework.",
+    feedbackIncorrect: "❌ The key mechanism is mechanical: elevated pore pressure supports load and decreases contact stresses—not chemical alteration." },
+  // 33
+  { q: "Which modulus is used in analyzing volumetric compression?",
+    options: ["Bulk","Shear","Young’s","Biot’s"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—bulk modulus quantifies resistance to uniform volume change under pressure, central to compressibility analyses.",
+    feedbackIncorrect: "❌ Shear and Young’s relate to distortion or axial strain, not overall volumetric response." },
+  // 34
+  { q: "Why are compressional stresses dangerous near wellbores?",
+    options: ["They cause collapse","They open fractures","They reduce pore pressure","They stabilize casing"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—excess compressive hoop stress can exceed rock strength and lead to wellbore breakouts or collapse.",
+    feedbackIncorrect: "❌ Compression around the borehole wall does not open tensile fractures; it tends to spall or fail in shear." },
+  // 35
+  { q: "Why do extensional basins form under tensile stress?",
+    options: ["Crust thins and stretches","Rocks fold","Rocks compact","Grains cement"],
+    answer: 0,
+    feedbackCorrect: "✅ Right—extension produces normal faulting and lithospheric thinning, generating subsiding rift basins.",
+    feedbackIncorrect: "❌ Folding indicates shortening; extensional tectonics create stretching and fault-bounded basins instead." },
+  // 36
+  { q: "Why does smaller grain size reduce permeability?",
+    options: ["Smaller grains clog pores","Larger grains clog pores","Grain size has no effect","Grain size increases porosity"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—fine particles occupy pore throats and increase surface area, raising flow resistance and lowering permeability.",
+    feedbackIncorrect: "❌ Larger grains usually create wider pores and throats, improving flow compared to fine-grained packs." },
+  // 37
+  { q: "Which stress condition is most favorable for natural fractures?",
+    options: ["Tensile","Shear","Compressional","Hydrostatic"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—tension overcomes tensile strength and opens mode-I fractures, enhancing fracture porosity and pathways.",
+    feedbackIncorrect: "❌ Compression tends to close cracks; shear alone typically offsets blocks rather than opening voids." },
+  // 38
+  { q: "Why is shear stress problematic in deviated wells?",
+    options: ["It activates slip planes","It reduces porosity","It dissolves cement","It increases pore pressure"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—well deviation can align with weak planes, and shear stresses promote sliding and instability along those planes.",
+    feedbackIncorrect: "❌ The main concern is mechanical reactivation of planes, not porosity or chemical effects." },
+  // 39
+  { q: "Why do rocks resist deformation more at greater depth?",
+    options: ["Higher compaction","Lower cementation","Higher porosity","Lower stress"],
+    answer: 0,
+    feedbackCorrect: "✅ Right—greater overburden compacts and strengthens frameworks, so higher stresses are needed to deform deep rocks.",
+    feedbackIncorrect: "❌ Depth generally increases effective stress and reduces porosity—conditions that strengthen, not weaken, most rocks." },
+  // 40
+  { q: "Why do interconnected pores improve permeability vs isolated pores?",
+    options: ["They form continuous pathways","They trap fluids","They dissolve minerals","They compact grains"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—connectivity allows fluids to traverse from pore to pore; without connections, pores contribute little to flow.",
+    feedbackIncorrect: "❌ Isolated pores may store fluids but cannot transmit them; permeability depends on pathway continuity." },
+];
+
+const advancedQuestions = [
+  // 41
+  { q: "Which stress type creates normal faults in rift basins?",
+    options: ["Tensile","Compressional","Shear","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—extensional regimes develop normal faults as the crust is pulled apart and blocks drop down along fault planes.",
+    feedbackIncorrect: "❌ Compression creates reverse faults, and shear dominates strike-slip settings—not rift-style normal faulting." },
+  // 42
+  { q: "Which stress type creates reverse faults?",
+    options: ["Compressional","Tensile","Shear","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Right—reverse and thrust faults form where compression shortens and thickens the crust.",
+    feedbackIncorrect: "❌ Reverse faults are not produced by tensile opening; they reflect crustal shortening under compression." },
+  // 43
+  { q: "Which stress type creates strike-slip faults?",
+    options: ["Shear","Tensile","Compressional","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—dominant horizontal shear generates lateral offsets along near-vertical fault planes.",
+    feedbackIncorrect: "❌ Tension and compression mainly open or shorten, whereas strike-slip faults accommodate sideways motion." },
+  // 44
+  { q: "Which modulus is most important for fracture propagation in stimulation?",
+    options: ["Young’s","Bulk","Shear","Biot’s"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—Young’s modulus reflects stiffness controlling fracture width and energy needed for crack growth during stimulation.",
+    feedbackIncorrect: "❌ Bulk modulus governs volumetric compression; fracture propagation depends more on directional stiffness (E) and toughness." },
+  // 45
+  { q: "Which modulus is most important for storage prediction in aquifers?",
+    options: ["Bulk","Shear","Young’s","Biot’s"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—bulk modulus and compressibility determine how much volume change occurs for a given pressure change, critical for storage calculations.",
+    feedbackIncorrect: "❌ Young’s modulus addresses axial stiffness; storage capacity hinges on volumetric compressibility (bulk response)." },
+  // 46
+  { q: "Which pore type dominates permeability in tight gas reservoirs?",
+    options: ["Fractures","Connected pores","Isolated pores","Matrix pores"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—natural and induced fractures provide the principal flow network when matrix permeability is extremely low.",
+    feedbackIncorrect: "❌ Matrix pores in tight rocks are too small to transmit flow effectively without fracture connectivity." },
+  // 47
+  { q: "Why is tensile stress critical for CO₂ storage safety?",
+    options: ["It can fracture cap rocks","It increases porosity","It reduces effective stress","It increases density"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—excess pressure may induce tensile failure in the seal, creating leakage pathways that compromise containment.",
+    feedbackIncorrect: "❌ The risk is fracture opening of the caprock; compression tends to keep seals closed rather than breach them." },
+  // 48
+  { q: "Which stress regime enhances secondary porosity?",
+    options: ["Tensile","Shear","Compressional","Hydrostatic"],
+    answer: 0,
+    feedbackCorrect: "✅ Right—tension promotes fracturing and dilatancy, which can generate secondary porosity and new flow paths.",
+    feedbackIncorrect: "❌ Compression normally reduces pore space; shear mainly offsets blocks without opening significant voids." },
+  // 49
+  { q: "Which modulus influences seismic velocity most strongly?",
+    options: ["Bulk","Shear","Young’s","Porosity"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—bulk modulus has a first-order effect on P-wave velocity because it governs resistance to volumetric compression.",
+    feedbackIncorrect: "❌ Porosity and shear modulus matter, but P-wave speed is especially sensitive to bulk incompressibility with density." },
+  // 50
+  { q: "Why is shear stress linked to earthquake rupture paths?",
+    options: ["It reactivates slip planes","It dissolves minerals","It reduces porosity","It increases bulk density"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—earthquakes propagate along pre-existing or newly formed shear planes where differential stress overcomes frictional resistance.",
+    feedbackIncorrect: "❌ Rupture is a mechanical sliding process, not driven by dissolution or density changes." },
+  // 51
+  { q: "Which stress regime dominates subduction zones?",
+    options: ["Compressional","Tensile","Shear","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—convergence at subduction interfaces imposes strong compression, producing thickened crust and accretionary prisms.",
+    feedbackIncorrect: "❌ Subduction is not an extensional setting; shortening and compression are the hallmark stresses." },
+  // 52
+  { q: "Why is understanding stress essential before applying porosity-depth models?",
+    options: ["Stress controls compaction","Stress does not affect porosity","Stress increases dissolution","Stress controls only cementation"],
+    answer: 0,
+    feedbackCorrect: "✅ Right—effective stress dictates compaction rates and porosity loss, so models must incorporate stress conditions to be realistic.",
+    feedbackIncorrect: "❌ Ignoring stress would misestimate compaction; it’s fundamental to predicting porosity with depth." },
+  // 53
+  { q: "Why does higher Young’s modulus improve stimulation efficiency?",
+    options: ["It enables efficient stress transfer","It reduces porosity","It lowers fracture risk","It increases cementation"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—stiffer rock transmits stresses more effectively, promoting fracture propagation and proppant placement.",
+    feedbackIncorrect: "❌ Lower modulus tends to dissipate energy and may limit fracture growth; porosity or cementation alone don’t ensure efficiency." },
+  // 54
+  { q: "Why might bulk modulus matter for predicting subsidence?",
+    options: ["It controls compressibility","It increases porosity","It reduces compaction","It controls fractures"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—bulk modulus defines how much a formation compacts for a given pressure drop; higher compressibility means more subsidence risk.",
+    feedbackIncorrect: "❌ Porosity changes are a result, not the controlling parameter; volumetric compressibility is the key input." },
+  // 55
+  { q: "Why do shales need adjustments in porosity-depth models?",
+    options: ["They contain clay with low permeability","They behave like sandstone","They contain wide fractures","They are highly porous"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—clay-rich shales have distinct compaction behavior and pore structures, so sandstone-based trends are not directly transferable.",
+    feedbackIncorrect: "❌ Shales differ from sandstones; their fine grains and clays reduce permeability and influence compaction differently." },
+  // 56
+  { q: "Why does fracture connectivity dominate permeability in tight formations?",
+    options: ["Matrix porosity is too low","Grain sorting dominates","Tortuosity dominates","Cementation dominates"],
+    answer: 0,
+    feedbackCorrect: "✅ Right—when matrix pores are minute and poorly connected, flow relies on fracture networks to achieve economic transmissivity.",
+    feedbackIncorrect: "❌ Sorting and tortuosity matter, but in ultra-low-perm rocks, without connected fractures, flow remains minimal." },
+  // 57
+  { q: "Which stress regime poses the greatest risk to caprock during injection?",
+    options: ["Tensile","Shear","Compressional","Hydrostatic"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—tensile conditions can open fractures in seals under elevated pressures, jeopardizing containment integrity.",
+    feedbackIncorrect: "❌ Shear may reactivate slip, but direct opening of pathways is primarily a tensile failure risk for caprocks." },
+  // 58
+  { q: "Why must porosity-depth be coupled with elastic moduli?",
+    options: ["Moduli predict stress-flow paths","Porosity alone is sufficient","Moduli reduce permeability","Stress does not affect porosity"],
+    answer: 0,
+    feedbackCorrect: "✅ Exactly—elastic moduli govern how stress distributes and how rock deforms, which in turn controls fracture development and flow behavior.",
+    feedbackIncorrect: "❌ Porosity alone cannot capture mechanical effects; coupling with stiffness parameters yields more realistic predictions." },
+  // 59
+  { q: "Which stress regime dominates transform plate boundaries?",
+    options: ["Shear","Tensile","Compressional","Normal"],
+    answer: 0,
+    feedbackCorrect: "✅ Correct—transform margins are characterized by lateral shear where plates slide past each other.",
+    feedbackIncorrect: "❌ They are not divergent (tensile) or convergent (compressional); shear motion is the defining feature." },
+  // 60
+  { q: "Why is effective stress analysis critical in reservoirs?",
+    options: ["It controls rock stability","It predicts mineralogy","It increases porosity","It reduces permeability"],
+    answer: 0,
+    feedbackCorrect: "✅ Yes—effective stress governs failure risk, compaction, and permeability evolution, directly impacting reservoir integrity and productivity.",
+    feedbackIncorrect: "❌ Mineralogy matters, but stability and deformation are primarily controlled by the balance between total stress and pore pressure (effective stress)." },
+];
+
+/**
+ * QUIZ ENGINE – Adaptive logic per user spec
+ * - Max 8 questions per attempt
+ * - Start Beginner: serve exactly 4 questions
+ *   - If >=3 correct in those 4 → advance to Intermediate; else lock at Beginner until 8 total
+ * - Intermediate: serve 2 questions
+ *   - If both correct (2/2) → advance to Advanced; else lock at Intermediate until 8 total
+ * - Advanced: serve 2 questions
+ *   - If both correct (2/2) → success and finish early; else continue Advanced until 8 total
+ */
+
+let level = 'beginner';
+let askedTotal = 0;          // total questions asked this attempt
+let scoreTotal = 0;          // total correct
+let stageCount = 0;          // questions asked in current stage chunk (4 for beginner, 2 for others)
+let stageScore = 0;          // correct in current stage chunk
+let levelLocked = null;      // 'beginner' or 'intermediate' when promotion failed; null otherwise
+let currentQ = null;         // currently displayed question object
+
+const usedIdx = { beginner: new Set(), intermediate: new Set(), advanced: new Set() };
+
+function pickRandomQuestion(pool, usedSet) {
+  if (usedSet.size >= pool.length) usedSet.clear(); // recycle if all used (won't matter within 8 Q limit)
+  let idx;
+  do { idx = Math.floor(Math.random() * pool.length); } while (usedSet.has(idx));
+  usedSet.add(idx);
+  return pool[idx];
+}
+
+function updateMeta() {
+  document.getElementById('levelBadge').textContent = level.charAt(0).toUpperCase() + level.slice(1);
+  document.getElementById('counter').textContent = `Question ${askedTotal + 1} of 8`;
+  document.getElementById('progressInfo').textContent = `Score: ${scoreTotal} correct · Stage: ${stageScore}/${level === 'beginner' ? 4 : 2}`;
+}
+
+function renderQuestion() {
+  if (askedTotal >= 8) return endQuiz(false);
+
+  updateMeta();
+  const pool = level === 'beginner' ? beginnerQuestions : level === 'intermediate' ? intermediateQuestions : advancedQuestions;
+  currentQ = pickRandomQuestion(pool, usedIdx[level]);
+  stageCount++;
+  // Render
+  const qText = document.getElementById('qText');
+  const opts = document.getElementById('options');
+  const fb = document.getElementById('feedback');
+  qText.textContent = currentQ.q;
+  fb.textContent = '';
+  fb.className = 'feedback';
+  document.getElementById('nextBtn').style.display = 'none';
+
+  // options
+  opts.innerHTML = '';
+  currentQ.options.forEach((opt, i) => {
+    const id = `opt${askedTotal}_${i}`;
+    const label = document.createElement('label');
+    label.className = 'opt';
+    label.innerHTML = `<input type="radio" name="opts" id="${id}" value="${i}" aria-label="${opt}"> ${opt}`;
+    label.addEventListener('click', () => onAnswer(i));
+    opts.appendChild(label);
+  });
+}
+
+function onAnswer(i) {
+  // prevent double answers
+  const opts = document.querySelectorAll('.opt');
+  opts.forEach(o => o.style.pointerEvents = 'none');
+
+  const fb = document.getElementById('feedback');
+  const correct = i === currentQ.answer;
+  if (correct) {
+    scoreTotal++; stageScore++;
+    fb.textContent = currentQ.feedbackCorrect;
+    fb.className = 'feedback ok';
+  } else {
+    fb.textContent = currentQ.feedbackIncorrect;
+    fb.className = 'feedback bad';
+  }
+  // paint selection and correct answer
+  opts.forEach((o, idx) => {
+    if (idx === i) o.classList.add(correct ? 'correct' : 'incorrect');
+    if (idx === currentQ.answer) o.classList.add('correct');
+  });
+
+  document.getElementById('nextBtn').style.display = 'inline-block';
+}
+
+function evaluateStageAndAdvance() {
+  // Beginner chunk ends at 4 questions asked in this stage
+  if (level === 'beginner' && stageCount === 4) {
+    if (!levelLocked && stageScore >= 3) {
+      // promote to Intermediate
+      level = 'intermediate';
+    } else if (!levelLocked) {
+      // lock at beginner for the remainder of attempt
+      levelLocked = 'beginner';
+    }
+    stageCount = 0; stageScore = 0;
+  }
+  // Intermediate chunk ends at 2 questions
+  else if (level === 'intermediate' && stageCount === 2) {
+    if (!levelLocked && stageScore === 2) {
+      level = 'advanced';
+    } else if (!levelLocked) {
+      levelLocked = 'intermediate';
+    }
+    stageCount = 0; stageScore = 0;
+  }
+  // Advanced chunk ends at 2 questions
+  else if (level === 'advanced' && stageCount === 2) {
+    if (stageScore === 2) {
+      return endQuiz(true); // success
+    }
+    stageCount = 0; stageScore = 0; // continue in advanced until 8 total
+  }
+}
+
+function next() {
+  askedTotal++;
+  if (askedTotal >= 8) return endQuiz(false);
+  evaluateStageAndAdvance();
+  updateMeta();
+  renderQuestion();
+}
+
+function endQuiz(success) {
+  document.getElementById('quiz').style.display = 'none';
+  const final = document.getElementById('final');
+  final.style.display = 'block';
+  final.innerHTML = `
+    <h2>${success ? '🎉 Well done!' : 'Attempt complete'}</h2>
+    <p>You answered <strong>${scoreTotal}</strong> out of <strong>${askedTotal}</strong> correctly.</p>
+    <p class="small">${success ? 'You cleared Advanced by answering both questions correctly.' : 'Maximum of 8 questions reached for this attempt.'}</p>
+    <button id="playAgain">Try Again</button>
+  `;
+  document.getElementById('playAgain').addEventListener('click', restart);
+}
+
+function restart() {
+  // reset all state
+  level = 'beginner';
+  askedTotal = 0; scoreTotal = 0; stageCount = 0; stageScore = 0; levelLocked = null; currentQ = null;
+  usedIdx.beginner.clear(); usedIdx.intermediate.clear(); usedIdx.advanced.clear();
+  document.getElementById('final').style.display = 'none';
+  document.getElementById('quiz').style.display = 'block';
+  updateMeta(); renderQuestion();
+}
+
+// Wire buttons
+ document.getElementById('nextBtn').addEventListener('click', next);
+ document.getElementById('restartBtn').addEventListener('click', restart);
+
+// Kick off
+updateMeta();
+renderQuestion();
+</script>
+</body>
+</html>
